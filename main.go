@@ -16,6 +16,8 @@ const (
 	whKeyboardLL        = 13
 	wmKeyDown           = 0x0100
 	wmSysKeyDown        = 0x0104
+	wmKeyUp             = 0x0101
+	wmSysKeyUp          = 0x0105
 	vkHangul            = 0x15
 	vkF12               = 0x7B
 	inputKeyboard       = 1
@@ -88,11 +90,14 @@ func foregroundExe() string {
 var hookH uintptr
 
 func hookCb(code int, wp, lp uintptr) uintptr {
-	if code >= 0 && (wp == wmKeyDown || wp == wmSysKeyDown) {
+	if code >= 0 && (wp == wmKeyDown || wp == wmSysKeyDown ||
+		wp == wmKeyUp || wp == wmSysKeyUp) {
 		s := (*kbdHookStruct)(unsafe.Pointer(lp))
 		if s.vkCode == vkHangul && foregroundExe() == "windowsterminal.exe" {
-			pressKey(vkF12, false)
-			pressKey(vkF12, true)
+			if wp == wmKeyDown || wp == wmSysKeyDown {
+				pressKey(vkF12, false)
+				pressKey(vkF12, true)
+			}
 			return 1
 		}
 	}
