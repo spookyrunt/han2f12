@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/spf13/pflag"
 	"golang.org/x/sys/windows"
 )
 
@@ -19,7 +20,7 @@ const (
 	wmKeyUp             = 0x0101
 	wmSysKeyUp          = 0x0105
 	vkHangul            = 0x15
-	vkF12               = 0x7B
+	vkHanja             = 0x19
 	inputKeyboard       = 1
 	keyEventFKeyUp      = 0x0002
 	processQueryLimited = 0x1000
@@ -93,12 +94,21 @@ func hookCb(code int, wp, lp uintptr) uintptr {
 	if code >= 0 && (wp == wmKeyDown || wp == wmSysKeyDown ||
 		wp == wmKeyUp || wp == wmSysKeyUp) {
 		s := (*kbdHookStruct)(unsafe.Pointer(lp))
-		if s.vkCode == vkHangul && foregroundExe() == "windowsterminal.exe" {
-			if wp == wmKeyDown || wp == wmSysKeyDown {
-				pressKey(vkF12, false)
-				pressKey(vkF12, true)
+		if foregroundExe() == "windowsterminal.exe" {
+			switch s.vkCode {
+			case vkHangul:
+				if wp == wmKeyDown || wp == wmSysKeyDown {
+					pressKey(hangulKey, false)
+					pressKey(hangulKey, true)
+				}
+				return 1
+			case vkHanja:
+				if wp == wmKeyDown || wp == wmSysKeyDown {
+					pressKey(hanjaKey, false)
+					pressKey(hanjaKey, true)
+				}
+				return 1
 			}
-			return 1
 		}
 	}
 	r, _, _ := callNextHookEx.Call(hookH, uintptr(code), wp, lp)
@@ -114,7 +124,45 @@ func installHook() error {
 	return nil
 }
 
+var (
+	hangulKey uint16
+	hanjaKey  uint16
+)
+
+func parseKey(s string) uint16 {
+	keys := map[string]uint16{
+		"F1": 0x70, "F2": 0x71, "F3": 0x72, "F4": 0x73,
+		"F5": 0x74, "F6": 0x75, "F7": 0x76, "F8": 0x77,
+		"F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B,
+	}
+	if v, ok := keys[strings.ToUpper(s)]; ok {
+		return v
+	}
+	fmt.Fprintf(os.Stderr, "알 수 없는 키: %s\n", s)
+	os.Exit(1)
+	return 0
+}
+
 func main() {
+	{
+		name, _ := windows.UTF16PtrFromString("Local\\han2f12_mutex")
+		_, err := windows.CreateMutex(nil, false, name)
+		if err != nil {
+			if err == windows.ERROR_ALREADY_EXISTS {
+				fmt.Fprintln(os.Stderr, "이미 실행 중입니다:", err)
+			} else {
+				fmt.Fprintln(os.Stderr, "이미 실행 중인 것 같습니다:", err)
+			}
+			return
+		}
+	}
+	var hangulStr, hanjaStr string
+	pflag.StringVar(&hangulStr, "hangul", "F12", "한영 키 매핑")
+	pflag.StringVar(&hanjaStr, "hanja", "F9", "한자 키 매핑")
+	pflag.Parse()
+	hangulKey = parseKey(hangulStr)
+	hanjaKey = parseKey(hanjaStr)
+
 	ready := make(chan error, 1)
 
 	go func() {
@@ -140,8 +188,7 @@ func main() {
 		return
 	}
 	defer unhookWindowsHookEx.Call(hookH)
-
-	fmt.Println("실행 중. Windows Terminal 한/영 → F12")
+	fmt.Printf("실행 중. Windows Terminal 한/영 → %s, 한자 → %s\n", hangulStr, hanjaStr)
 	fmt.Println("종료: Enter 또는 Ctrl+C")
 
 	sig := make(chan os.Signal, 1)
