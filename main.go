@@ -13,19 +13,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	whKeyboardLL        = 13
-	wmKeyDown           = 0x0100
-	wmSysKeyDown        = 0x0104
-	wmKeyUp             = 0x0101
-	wmSysKeyUp          = 0x0105
-	vkHangul            = 0x15
-	vkHanja             = 0x19
-	inputKeyboard       = 1
-	keyEventFKeyUp      = 0x0002
-	processQueryLimited = 0x1000
-)
-
 var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
@@ -53,9 +40,12 @@ type msgStruct struct {
 	ptX, ptY       int32
 }
 
-const inputSize = 40
-
 func pressKey(vk uint16, up bool) {
+	const (
+		inputSize      = 40
+		inputKeyboard  = 1
+		keyEventFKeyUp = 0x0002
+	)
 	var b [inputSize]byte
 	*(*uint32)(unsafe.Pointer(&b[0])) = inputKeyboard
 	*(*uint16)(unsafe.Pointer(&b[8])) = vk
@@ -66,6 +56,7 @@ func pressKey(vk uint16, up bool) {
 }
 
 func foregroundExe() string {
+	const processQueryLimited = 0x1000
 	hwnd, _, _ := getForegroundWindow.Call()
 	if hwnd == 0 {
 		return ""
@@ -88,9 +79,21 @@ func foregroundExe() string {
 	return strings.ToLower(path[i+1:])
 }
 
-var hookH uintptr
+var (
+	hookH     uintptr
+	hangulKey uint16
+	hanjaKey  uint16
+)
 
 func hookCb(code int, wp, lp uintptr) uintptr {
+	const (
+		wmKeyDown    = 0x0100
+		wmSysKeyDown = 0x0104
+		wmKeyUp      = 0x0101
+		wmSysKeyUp   = 0x0105
+		vkHangul     = 0x15
+		vkHanja      = 0x19
+	)
 	if code >= 0 && (wp == wmKeyDown || wp == wmSysKeyDown ||
 		wp == wmKeyUp || wp == wmSysKeyUp) {
 		s := (*kbdHookStruct)(unsafe.Pointer(lp))
@@ -116,6 +119,7 @@ func hookCb(code int, wp, lp uintptr) uintptr {
 }
 
 func installHook() error {
+	const whKeyboardLL = 13
 	cb := syscall.NewCallback(hookCb)
 	hookH, _, _ = setWindowsHookEx.Call(whKeyboardLL, cb, 0, 0)
 	if hookH == 0 {
@@ -123,11 +127,6 @@ func installHook() error {
 	}
 	return nil
 }
-
-var (
-	hangulKey uint16
-	hanjaKey  uint16
-)
 
 func parseKey(s string) uint16 {
 	keys := map[string]uint16{
@@ -156,6 +155,7 @@ func main() {
 			return
 		}
 	}
+
 	var hangulStr, hanjaStr string
 	pflag.StringVar(&hangulStr, "hangul", "F12", "한영 키 매핑")
 	pflag.StringVar(&hanjaStr, "hanja", "F9", "한자 키 매핑")
@@ -184,7 +184,7 @@ func main() {
 	}()
 
 	if err := <-ready; err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		return
 	}
 	defer unhookWindowsHookEx.Call(hookH)
