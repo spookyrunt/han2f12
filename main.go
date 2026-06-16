@@ -87,17 +87,19 @@ var (
 
 func hookCb(code int, wp, lp uintptr) uintptr {
 	const (
-		wmKeyDown    = 0x0100
-		wmSysKeyDown = 0x0104
-		wmKeyUp      = 0x0101
-		wmSysKeyUp   = 0x0105
-		vkHangul     = 0x15
-		vkHanja      = 0x19
+		wmKeyDown     = 0x0100
+		wmSysKeyDown  = 0x0104
+		wmKeyUp       = 0x0101
+		wmSysKeyUp    = 0x0105
+		vkHangul      = 0x15
+		vkHanja       = 0x19
+		llkhfInjected = 0x10
 	)
 	if code >= 0 && (wp == wmKeyDown || wp == wmSysKeyDown ||
 		wp == wmKeyUp || wp == wmSysKeyUp) {
 		s := (*kbdHookStruct)(unsafe.Pointer(lp))
-		if foregroundExe() == "windowsterminal.exe" {
+		injected := s.flags&llkhfInjected != 0
+		if !injected && foregroundExe() == "windowsterminal.exe" {
 			switch s.vkCode {
 			case vkHangul:
 				if wp == wmKeyDown || wp == wmSysKeyDown {
@@ -109,6 +111,20 @@ func hookCb(code int, wp, lp uintptr) uintptr {
 				if wp == wmKeyDown || wp == wmSysKeyDown {
 					pressKey(hanjaKey, false)
 					pressKey(hanjaKey, true)
+				}
+				return 1
+			}
+			if s.vkCode == uint32(hangulKey) {
+				if wp == wmKeyDown || wp == wmSysKeyDown {
+					pressKey(vkHangul, false)
+					pressKey(vkHangul, true)
+				}
+				return 1
+			}
+			if s.vkCode == uint32(hanjaKey) {
+				if wp == wmKeyDown || wp == wmSysKeyDown {
+					pressKey(vkHanja, false)
+					pressKey(vkHanja, true)
 				}
 				return 1
 			}
@@ -188,7 +204,7 @@ func main() {
 		return
 	}
 	defer unhookWindowsHookEx.Call(hookH)
-	fmt.Printf("실행 중. Windows Terminal 한/영 → %s, 한자 → %s\n", hangulStr, hanjaStr)
+	fmt.Printf("실행 중. Windows Terminal 한/영 <-> %s, 한자 <-> %s\n", hangulStr, hanjaStr)
 	fmt.Println("종료: Enter 또는 Ctrl+C")
 
 	sig := make(chan os.Signal, 1)
